@@ -59,12 +59,14 @@ function sync_samba() {
     default = FILE:/var/log/krb5libs.log
     kdc = FILE:/var/log/krb5kdc.log
     admin_server = FILE:/var/log/kadmind.log
+
 [libdefaults]
     default_realm = $domain
     dns_lookup_realm = true
     dns_lookup_kdc = true
     ticket_lifetime = 24h
     forwardable = yes
+
 EOD;
 if ($settings['ad_version'] == 'win2003') {
   $krb_conf .= <<<EOD
@@ -84,6 +86,7 @@ EOD;
 }
 
 $krb_conf .= <<<EOD
+
 [appdefaults]
     pam = {
         debug = false
@@ -92,28 +95,35 @@ $krb_conf .= <<<EOD
         forwardable = true
         krb4_convert = false
     }
+
 [domain_realm]
     .$domain_low = $domain
     $domain_low = $domain
+
 EOD;
         file_put_contents('/etc/krb5.conf', $krb_conf);
         $smb_conf = <<<EOD
 [global]
+
    workgroup = $workgroup
    security = ADS
    realm = $domain
    encrypt passwords = yes
+
    interfaces = $hostip[0]
+
    idmap config *:backend = tdb
    idmap config *:range = 70001-80000
    idmap config $workgroup:backend = ad
    idmap config $workgroup:schema_mode = rfc2307
    idmap config $workgroup:range = 500-40000
+
    winbind nss info = rfc2307
    winbind trusted domains only = no
    winbind use default domain = yes
    winbind enum users  = no
    winbind enum groups = no
+
 EOD;
         file_put_contents(SAMBACONF, $smb_conf);
         samba_write_rcfile();
@@ -164,11 +174,13 @@ if [ -z "`ps axuw | egrep "nmbd|smbd|winbindd" | grep -v 'grep' |awk '{print $2}
   /usr/local/sbin/nmbd -D -s ${samba_conf}
   /usr/local/sbin/winbindd -D -s ${samba_conf}
 fi
+
 EOD;
         $rc['stop'] = <<<EOD
 killall nmbd 2>/dev/null
 killall smbd 2>/dev/null
 killall winbindd 2>/dev/null
+
 EOD;
         // write rc file
 	      conf_mount_rw();
