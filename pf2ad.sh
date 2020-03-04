@@ -48,8 +48,8 @@ mkdir -p /var/db/samba4/winbindd_privileged
 chown -R :proxy /var/db/samba4/winbindd_privileged
 chmod -R 0750 /var/db/samba4/winbindd_privileged
 
-fetch -o /usr/local/pkg -q http://samba.inc
-fetch -o /usr/local/pkg -q http://samba.xml
+fetch -o /usr/local/pkg -q https://raw.githubusercontent.com/jopnine/pf2ad/homolaga%C3%A7%C3%A3o/samba.inc
+fetch -o /usr/local/pkg -q https://raw.githubusercontent.com/jopnine/pf2ad/homolaga%C3%A7%C3%A3o/samba.xml
 
 /usr/local/sbin/pfSsh.php <<EOF
 \$samba = false;
@@ -91,8 +91,8 @@ if [ ! "$(/usr/sbin/pkg info | grep pfSense-pkg-squid)" ]; then
 	/usr/sbin/pkg install -r pfSense pfSense-pkg-squid
 fi
 cd /usr/local/pkg
-fetch -o - -q http://squid_winbind_auth.patch | patch -b -p0 -f
-fetch -o /usr/local/pkg -q http://squid.inc
+fetch -o - -q https://raw.githubusercontent.com/jopnine/pf2ad/homolaga%C3%A7%C3%A3o/squid_winbind_auth.patch | patch -b -p0 -f
+fetch -o /usr/local/pkg -q https://raw.githubusercontent.com/jopnine/pf2ad/homolaga%C3%A7%C3%A3o/squid.inc
 
 if [ ! -f "/usr/local/etc/smb4.conf" ]; then
 	touch /usr/local/etc/smb4.conf
