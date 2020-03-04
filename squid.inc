@@ -337,9 +337,13 @@ function squid_write_rcfile() {
 	$rc['file'] = 'squid.sh';
 	$rc['start'] = <<< EOD
 #/sbin/sysctl net.inet.ip.portrange.reservedhigh=0
-if [ -z "`/bin/ps auxw | /usr/bin/grep "[s]quid " | /usr/bin/awk '{print $2}'`" ]; then
+SQUID_ENABLED=$(/usr/local/sbin/read_xml_tag.sh string installedpackages/squid/config/enable_squid)
+if [ "\${SQUID_ENABLED}" != "on" ]; then
+	exit 0
+elif [ -z "`/bin/ps auxw | /usr/bin/grep "[s]quid " | /usr/bin/awk '{print $2}'`" ]; then
 	{$squid_base}/sbin/squid -f {$squid_conffile_var}
 fi
+
 EOD;
 
 	$rc['stop'] = <<< EOD
@@ -349,12 +353,15 @@ sleep 5
 if [ -n "`/bin/ps auxw | /usr/bin/grep "[s]quid " | /usr/bin/awk '{print $2}'`" ]; then
 	{$squid_base}/sbin/squid -k kill -f {$squid_conffile_var}
 fi
+
 if [ -x /usr/bin/ipcs ]; then
 # http://man.chinaunix.net/newsoft/squid/Squid_FAQ/FAQ-22.html#ss22.8
 /usr/bin/ipcs | /usr/bin/grep '^[mq]' | /usr/bin/awk '{printf "ipcrm -%s %s\\n", $1, $2}' | /bin/sh
 fi
+
 /usr/bin/killall -9 squid 2>/dev/null
 /usr/bin/killall pinger 2>/dev/null
+
 EOD;
 
 	conf_mount_rw();
@@ -704,7 +711,7 @@ function squid_upgrade_config() {
 
 	/* migrate reverse proxy settings */
 	squid_reverse_upgrade_config();
-	
+
 	/* unset broken antivirus settings */
 	squid_antivirus_upgrade_config();
 
@@ -782,7 +789,7 @@ function squid_validate_general($post, &$input_errors) {
 		$input_errors[] = "You can not run Squid on the same port as the pfSense WebGUI";
 	}
 	unset($port, $webgui_port);
-	
+
 	if ($post['transparent_proxy'] == 'on') {
 		if (empty($post['transparent_active_interface'])) {
 			$input_errors[] = "You must select at least one interface under 'Transparent Proxy Interface(s)' when 'Transparent HTTP Proxy' is enabled.";
@@ -839,7 +846,7 @@ function squid_validate_general($post, &$input_errors) {
 		}
 	}
 	unset($host, $hosts);
-	
+
 	foreach (array('defined_ip_proxy_off_dest') as $hosts) {
 		foreach (explode(";", $post[$hosts]) as $host) {
 			$host = trim($host);
@@ -936,7 +943,7 @@ function squid_validate_cache($post, &$input_errors) {
 	}
 
 	if ($post['donotcache'] != "") {
-		foreach (split("\n", $post['donotcache']) as $host) {
+		foreach (explode("\n", $post['donotcache']) as $host) {
 			$host = trim($host);
 			// Allow matching all subdomains, like .example.com
 			if (strpos($host, '.') === 0) {
@@ -1287,9 +1294,18 @@ function squid_resync_general() {
 	 * This avoids periods when Squid is unresponsive due to digest generation.
 	 */
 	$digest_generation = "off";
+	if (!is_array($config['installedpackages'])) {
+		$config['installedpackages'] = array();
+	}
+
+	if (!is_array($config['installedpackages']['squidremote'])) {
+		$config['installedpackages']['squidremote'] = array();
+	}
+
 	if (!is_array($config['installedpackages']['squidremote']['config'])) {
 		$config['installedpackages']['squidremote']['config'] = array();
 	}
+
 	foreach ($config['installedpackages']['squidremote']['config'] as $settings) {
 		if ($settings['enable'] == 'on' && $settings['hierarchy'] == 'sibling') {
 			$digest_generation = "on";
@@ -1315,6 +1331,7 @@ netdb_filename {$logdir}/netdb.state
 pinger_enable {$pinger_helper}
 pinger_program {$pinger_program}
 {$interception_checks}
+
 EOD;
 
 	// Per squid docs, setting logfile_rotate to 0 is safe and causes a simple close/reopen.
@@ -1325,6 +1342,7 @@ EOD;
 
 	$conf .= <<< EOD
 shutdown_lifetime 3 seconds
+
 EOD;
 
 	if ($settings['allow_interface'] == 'on') {
@@ -1436,9 +1454,11 @@ refresh_pattern ^ftp:    1440  20%  10080
 refresh_pattern ^gopher:  1440  0%  1440
 refresh_pattern -i (/cgi-bin/|\?) 0  0%  0
 refresh_pattern .    0  20%  4320
+
 EOC;
 
 	$conf .= <<< EOD
+
 cache_mem {$memory_cache_size} MB
 maximum_object_size_in_memory {$max_objsize_in_mem} KB
 memory_replacement_policy {$memory_policy}
@@ -1447,6 +1467,7 @@ minimum_object_size {$min_objsize} KB
 maximum_object_size {$max_objsize}
 {$disk_cache_opts}
 offline_mode {$offline_mode}
+
 EOD;
 
 	if (!empty($settings['cache_swap_low'])) {
@@ -1472,6 +1493,14 @@ EOD;
 /* Proxy Server: Remote Proxy Settings configuration handler */
 function squid_resync_upstream() {
 	global $config;
+
+	if (!is_array($config['installedpackages'])) {
+		$config['installedpackages'] = array();
+	}
+
+	if (!is_array($config['installedpackages']['squidremote'])) {
+		$config['installedpackages']['squidremote'] = array();
+	}
 
 	if (!is_array($config['installedpackages']['squidremote']['config'])) {
 		$config['installedpackages']['squidremote']['config'] = array();
@@ -1535,20 +1564,25 @@ function squid_resync_nac() {
 		$ssl_port = $squidsettings['ssl_proxy_port'] ? $squidsettings['ssl_proxy_port'] : 3129;
 	}
 	$conf = <<< EOD
+
 # Setup some default acls
 # ACLs all, manager, localhost, and to_localhost are predefined.
 acl allsrc src all
 acl safeports port 21 70 80 210 280 443 488 563 591 631 777 901 {$webgui_port} {$port} {$ssl_port} 1025-65535 {$addtl_ports}
 acl sslports port 443 563 {$webgui_port} {$addtl_sslports}
+
 acl purge method PURGE
 acl connect method CONNECT
+
 # Define protocols used for redirects
 acl HTTP proto HTTP
 acl HTTPS proto HTTPS
+
 EOD;
 
 	if ($squidsettings['ssl_proxy'] == 'on') {
 		$conf .= <<< EOD
+
 # SslBump Peek and Splice
 # http://wiki.squid-cache.org/Features/SslPeekAndSplice
 # http://wiki.squid-cache.org/ConfigExamples/Intercept/SslBumpExplicit
@@ -1566,9 +1600,10 @@ EOD;
 acl step1 at_step SslBump1
 acl step2 at_step SslBump2
 acl step3 at_step SslBump3
+
 EOD;
 	}
-	
+
 	$allowed_subnets = preg_replace("/\s+/"," ", sq_text_area_decode($settings['allowed_subnets']));
 	if (!empty($allowed_subnets)) {
 		$conf .= "acl allowed_subnets src $allowed_subnets\n";
@@ -1597,6 +1632,7 @@ EOD;
 
 	$conf .= <<< EOD
 http_access allow manager localhost
+
 EOD;
 
 	if (is_array($config['installedpackages']['squidcache'])) {
@@ -1612,13 +1648,16 @@ EOD;
 	}
 
 	$conf .= <<< EOD
+
 http_access deny manager
 http_access allow purge localhost
 http_access deny purge
 http_access deny !safeports
 http_access deny CONNECT !sslports
+
 # Always allow localhost connections
 http_access allow localhost
+
 EOD;
 
 	return $conf;
@@ -1679,6 +1718,7 @@ delay_pools 1
 delay_class 1 2
 delay_parameters 1 $overall/$overall $perhost/$perhost
 delay_initial_bucket_level 100
+
 EOD;
 
 	if (!empty($settingsnac['unrestricted_hosts'])) {
@@ -1732,6 +1772,7 @@ function squid_resync_auth() {
 	global $config, $valid_acls;
 	$write_config = 0;
 	if (!is_array($config['installedpackages']['squidauth']['config'])) {
+		init_config_arr(array('installedpackages', 'squidauth', 'config'));
 		$config['installedpackages']['squidauth']['config'][] = array('auth_method' => "none");
 		$write_config++;
 	}
@@ -1897,7 +1938,7 @@ function squid_resync_auth() {
 					$conf .= "auth_param negotiate program ". SQUID_LOCALBASE . "/libexec/squid/negotiate_wrapper_auth --ntlm ". SQUID_LOCALBASE ."/libexec/squid/ntlm_auth ". $domain_samba4 ."--helper-protocol=squid-2.5-ntlmssp --kerberos ". SQUID_LOCALBASE ."/libexec/squid/negotiate_kerberos_auth -s GSS_C_NO_NAME\n";
 					$conf .= "auth_param negotiate children {$ntlm_proc}\n";
 					$conf .= "auth_param negotiate keep_alive off\n";
-					$conf .= "# Pure NTLM\n";	
+					$conf .= "# Pure NTLM\n";
 					$conf .= "auth_param ntlm program ". SQUID_LOCALBASE . "/libexec/squid/ntlm_auth " . $domain_samba4 . "--helper-protocol=squid-2.5-ntlmssp\n";
 					$conf .= "auth_param ntlm children {$ntlm_proc}\n";
 					$conf .= "auth_param ntlm keep_alive off\n";
@@ -1918,6 +1959,7 @@ auth_param basic children $processes
 auth_param basic realm $prompt
 auth_param basic credentialsttl $auth_ttl minutes
 acl password proxy_auth REQUIRED
+
 EOD;
 		}
 		// Custom User Options after authentication definition
@@ -2420,9 +2462,11 @@ function squid_do_xmlrpc_sync($sync_to_ip, $port, $protocol, $username, $passwor
 function squid_list_ssl_ca() {
 	global $config;
 	$prvca_list = array();
-	foreach ($config['ca'] as $ca) {
-		if (!empty($ca['prv'])) {
-			$prvca_list[] = $ca;
+	if (isset($config['ca']) && is_array($config['ca'])) {
+		foreach ($config['ca'] as $ca) {
+			if (!empty($ca['prv'])) {
+				$prvca_list[] = $ca;
+			}
 		}
 	}
 	return $prvca_list;
